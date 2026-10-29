@@ -37,6 +37,7 @@
 #define STR_BUF_SIZ   ESC_BUF_SIZ
 #define STR_ARG_SIZ   ESC_ARG_SIZ
 #define HISTSIZE      2000
+#define KBD_STACK_SIZE 16
 
 /* PUA character used as an image placeholder */
 #define IMAGE_PLACEHOLDER_CHAR 0x10EEEE
@@ -60,6 +61,7 @@ enum term_mode {
 	MODE_ECHO        = 1 << 4,
 	MODE_PRINT       = 1 << 5,
 	MODE_UTF8        = 1 << 6,
+	MODE_SYNC        = 1 << 7,
 };
 
 enum cursor_movement {
@@ -142,6 +144,10 @@ typedef struct {
 	int icharset; /* selected charset for sequence */
 	int *tabs;
 	Rune lastc;   /* last printed char outside of sequence, 0 if control */
+	unsigned kbd_flags[2]; /* kitty keyboard flags, indexed by alt screen */
+	unsigned kbd_stack[2][KBD_STACK_SIZE]; /* kitty keyboard flag stacks */
+	int kbd_stack_len[2];
+	int modify_other_keys; /* xterm modifyOtherKeys level */
 } Term;
 
 /* CSI Escape sequence structs */
@@ -1066,10 +1072,139 @@ tcursor(int mode)
 	}
 }
 
+unsigned
+tkbdflags(void)
+{
+	return term.kbd_flags[IS_SET(MODE_ALTSCREEN) ? 1 : 0];
+}
+
+static void
+tkbdset(unsigned flags, unsigned mode)
+{
+	int screen = IS_SET(MODE_ALTSCREEN) ? 1 : 0;
+
+	if (mode == 2)
+		term.kbd_flags[screen] |= flags;
+	else if (mode == 3)
+		term.kbd_flags[screen] &= ~flags;
+	else
+		term.kbd_flags[screen] = flags;
+}
+
+static void
+tkbdpush(unsigned flags)
+{
+	int screen = IS_SET(MODE_ALTSCREEN) ? 1 : 0;
+
+	if (term.kbd_stack_len[screen] >= KBD_STACK_SIZE) {
+		memmove(&term.kbd_stack[screen][0], &term.kbd_stack[screen][1],
+		        (KBD_STACK_SIZE - 1) * sizeof(unsigned));
+		term.kbd_stack_len[screen] = KBD_STACK_SIZE - 1;
+	}
+	term.kbd_stack[screen][term.kbd_stack_len[screen]++] =
+		term.kbd_flags[screen];
+	term.kbd_flags[screen] = flags;
+}
+
+static void
+tkbdpop(unsigned n)
+{
+	int screen = IS_SET(MODE_ALTSCREEN) ? 1 : 0;
+
+	if (n == 0)
+		n = 1;
+	while (n-- > 0 && term.kbd_stack_len[screen] > 0)
+		term.kbd_flags[screen] =
+			term.kbd_stack[screen][--term.kbd_stack_len[screen]];
+	if (term.kbd_stack_len[screen] == 0)
+		term.kbd_flags[screen] = 0;
+}
+
+static int
+csiparsekittyargs(const char *buf, size_t len, unsigned *args, int maxargs,
+                  char *final)
+{
+	size_t i = 1;
+	int narg = 0;
+
+	if (len < 2)
+		return 0;
+
+	while (i < len) {
+		unsigned v = 0;
+		while (i < len && buf[i] >= '0' && buf[i] <= '9') {
+			if (v < UINT_MAX / 10)
+				v = v * 10 + (buf[i] - '0');
+			i++;
+		}
+		if (narg < maxargs)
+			args[narg++] = v;
+		if (i >= len)
+			return 0;
+		if (buf[i] == ';') {
+			i++;
+			continue;
+		}
+		break;
+	}
+	if (i != len - 1)
+		return 0;
+	*final = buf[i];
+	return narg;
+}
+
+static int
+csihandlekeyboard(void)
+{
+	unsigned args[ESC_ARG_SIZ] = {0};
+	char final = 0;
+	int narg;
+
+	if (csiescseq.len < 2 ||
+	    (csiescseq.buf[0] != '>' && csiescseq.buf[0] != '<' &&
+	     csiescseq.buf[0] != '='))
+		return 0;
+	narg = csiparsekittyargs(csiescseq.buf, csiescseq.len, args,
+	                         LEN(args), &final);
+	if (narg == 0)
+		return 0;
+
+	if (final == 'u') {
+		switch (csiescseq.buf[0]) {
+		case '>':
+			tkbdpush(args[0]);
+			return 1;
+		case '<':
+			tkbdpop(args[0]);
+			return 1;
+		case '=':
+			tkbdset(args[0], narg > 1 ? args[1] : 1);
+			return 1;
+		}
+	} else if (csiescseq.buf[0] == '>' && args[0] == 4) {
+		if (final == 'm') {
+			term.modify_other_keys = narg > 1 ? args[1] : 1;
+			if (term.modify_other_keys < 0)
+				term.modify_other_keys = 0;
+			if (term.modify_other_keys > 2)
+				term.modify_other_keys = 2;
+			return 1;
+		} else if (final == 'n') {
+			term.modify_other_keys = 0;
+			return 1;
+		}
+	}
+	return 0;
+}
+
 void
 treset(void)
 {
 	uint i;
+
+	term.kbd_flags[0] = term.kbd_flags[1] = 0;
+	term.kbd_stack_len[0] = term.kbd_stack_len[1] = 0;
+	term.modify_other_keys = 0;
 
 	term.c = (TCursor){{
 		.mode = ATTR_NULL,
@@ -1250,7 +1385,7 @@ csiparse(void)
 
 	csiescseq.narg = 0;
 	if (*p == '?') {
-		csiescseq.priv = 1;
+		csiescseq.priv = '?';
 		p++;
 	}
 
@@ -1315,7 +1450,7 @@ tsetchar(Rune u, const Glyph *attr, int x, int y)
 	/*
 	 * The table is proudly stolen from rxvt.
 	 */
-	if (term.trantbl[term.charset] == CS_GRAPHIC0 &&
+	if (!IS_SET(MODE_SYNC) && term.trantbl[term.charset] == CS_GRAPHIC0 &&
 	   BETWEEN(u, 0x41, 0x7e) && vt100_0[u - 0x41])
 		utf8decode(vt100_0[u - 0x41], &u, UTF_SIZ);
 
@@ -1348,6 +1483,7 @@ tsetchar(Rune u, const Glyph *attr, int x, int y)
 		term.line[y][x].mode |= ATTR_IMAGE;
 	}
 
+	term.line[y][x].mode &= ~ATTR_BOXDRAW;
 	if (isboxdraw(u))
 		term.line[y][x].mode |= ATTR_BOXDRAW;
 }
@@ -1807,6 +1943,15 @@ tsetmode(int priv, int set, const int *args, int narg)
 			case 2004: /* 2004: bracketed paste mode */
 				xsetmode(set, MODE_BRCKTPASTE);
 				break;
+			case 2026: /* 2026: synchronized output */
+				MODBIT(term.mode, set, MODE_SYNC);
+				if (!set) {
+					memset(term.trantbl, CS_USA,
+					       sizeof(term.trantbl));
+					term.charset = 0;
+					term.icharset = 0;
+				}
+				break;
 			/* Not implemented mouse modes. See comments there. */
 			case 1001: /* mouse highlight mode; can hang the
 				      terminal by design when implemented. */
@@ -1854,6 +1999,9 @@ csihandle(void)
 {
 	char buf[40];
 	int len;
+
+	if (csihandlekeyboard())
+		return;
 
 	switch (csiescseq.mode[0]) {
 	default:
@@ -2054,7 +2202,10 @@ csihandle(void)
 		tcursor(CURSOR_SAVE);
 		break;
 	case 'u': /* DECRC -- Restore cursor position (ANSI.SYS) */
-		if (csiescseq.priv) {
+		if (csiescseq.priv == '?') {
+			len = snprintf(buf, sizeof(buf), "\033[?%uu", tkbdflags());
+			ttywrite(buf, len, 0);
+		} else if (csiescseq.priv) {
 			goto unknown;
 		} else {
 			tcursor(CURSOR_LOAD);
@@ -2478,6 +2629,12 @@ tdeftran(char ascii)
 
 	if ((p = strchr(cs, ascii)) == NULL) {
 		fprintf(stderr, "esc unhandled charset: ESC ( %c\n", ascii);
+	} else if (IS_SET(MODE_SYNC) && vcs[p - cs] == CS_GRAPHIC0) {
+		/* Modern synchronized-output applications use Unicode line
+		 * drawing. Ignore legacy DEC graphics selected in that mode so a
+		 * stray SO/ESC(0 in application output cannot turn all following
+		 * ASCII text into pseudo-graphics. */
+		term.trantbl[term.icharset] = CS_USA;
 	} else {
 		term.trantbl[term.icharset] = vcs[p - cs];
 	}
@@ -2551,8 +2708,12 @@ tcontrolcode(uchar ascii)
 		term.esc |= ESC_START;
 		return;
 	case '\016': /* SO (LS1 -- Locking shift 1) */
+		if (IS_SET(MODE_SYNC))
+			return;
+		term.charset = 1;
+		return;
 	case '\017': /* SI (LS0 -- Locking shift 0) */
-		term.charset = 1 - (ascii - '\016');
+		term.charset = 0;
 		return;
 	case '\032': /* SUB */
 		tsetchar('?', &term.c.attr, term.c.x, term.c.y);

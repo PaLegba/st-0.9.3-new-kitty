@@ -23,6 +23,11 @@ changes below are local additions to that base.
   - restoring evicted frames from their original files when possible;
   - graphics debug mode, state dumping, image unloading, and image display
     toggling.
+- Kitty keyboard protocol:
+  - `CSI ? u` capability query;
+  - flag setting, push, and pop (`CSI = ... u`, `CSI > ... u`, `CSI < ... u`);
+  - press/release reporting when requested, modifier encoding, shifted
+    alternate key codes, and the functional-key table.
 - Box-drawing renderer:
   - U+2500..U+259F lines, blocks, shades, quadrants, and braille;
   - Unicode Symbols for Legacy Computing U+1FB00..U+1FB8B (sextants, eighth
@@ -72,6 +77,11 @@ changes below are local additions to that base.
 
 ### Fixed
 
+- Ignore legacy DEC special graphics (`SO`, `ESC ( 0`, `ESC ) 0`) while
+  synchronized output mode (`CSI ? 2026 h`) is active. This prevents a leaked
+  character-set switch in application output from turning subsequent ASCII text
+  into pseudo-graphics.
+- Render bold Legacy Computing box-drawing characters from the correct table.
 - Added cleanup paths for image buffers, composed frames, and scaled pixmaps in
   the stb_image-based implementation.
 - Avoided color fringing when scaling transparent images by interpolating

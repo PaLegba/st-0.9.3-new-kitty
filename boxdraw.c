@@ -40,13 +40,17 @@ isboxdraw(Rune u)
 ushort
 boxdrawindex(const Glyph *g)
 {
+	ushort v = 0;
+
 	if (boxdraw_braille && (g->u & ~0xff) == 0x2800)
 		return BRL | (uint8_t)g->u;
 	if ((g->u & ~0xff) == 0x1fb00)
-		return (uint8_t)g->u < LEN(boxdata_1fb) ? boxdata_1fb[(uint8_t)g->u] : 0;
+		v = (uint8_t)g->u < LEN(boxdata_1fb) ? boxdata_1fb[(uint8_t)g->u] : 0;
+	else
+		v = boxdata[(uint8_t)g->u];
 	if (boxdraw_bold && (g->mode & ATTR_BOLD))
-		return BDB | boxdata[(uint8_t)g->u];
-	return boxdata[(uint8_t)g->u];
+		v |= BDB;
+	return v;
 }
 
 void

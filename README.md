@@ -41,6 +41,15 @@ Implemented functionality includes:
 
 Imlib2 is not required. stb_image is compiled directly into `graphics.o`.
 
+### Kitty keyboard protocol
+
+The terminal implements the kitty keyboard protocol used by modern full-screen
+applications. It answers `CSI ? u` capability queries, supports flag
+set/push/pop, and encodes modified keys using `CSI ... u` sequences when the
+application requests disambiguation. This lets applications distinguish
+`Shift+Enter`, `Ctrl+Shift+<key>`, and similar combinations instead of having
+the terminal drop the modifiers.
+
 ### Box drawing
 
 The tree includes the boxdraw v2 patch and the Legacy Computing extension:
@@ -66,7 +75,9 @@ const int boxdraw_braille = 1;
   cells;
 - window content alignment when the window size does not exactly match the
   terminal grid (`anysize_halign`, `anysize_valign`);
-- improved handling of large graphics streams on the tty input path.
+- improved handling of large graphics streams on the tty input path;
+- kitty keyboard protocol support for modifier-aware key reporting;
+- protection against leaked DEC special graphics inside synchronized output.
 
 ## Known limitations
 
