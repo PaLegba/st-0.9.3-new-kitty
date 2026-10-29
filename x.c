@@ -9,6 +9,7 @@
 #include <sys/select.h>
 #include <time.h>
 #include <unistd.h>
+#include <wchar.h>
 #include <libgen.h>
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
@@ -214,6 +215,7 @@ static void usage(void);
 
 static void (*handler[LASTEvent])(XEvent *) = {
 	[KeyPress] = kpress,
+	[KeyRelease] = kpress,
 	[ClientMessage] = cmessage,
 	[ConfigureNotify] = resize,
 	[VisibilityNotify] = visibility,
@@ -1481,7 +1483,7 @@ xmakeglyphfontspecs(XftGlyphFontSpec *specs, const Glyph *glyphs, int len, int x
 			yp = winy + font->ascent;
 		}
 
-		if (mode & ATTR_BOXDRAW) {
+		if ((mode & ATTR_BOXDRAW) && isboxdraw(rune)) {
 			/* minor shoehorning: boxdraw uses only this ushort */
 			glyphidx = boxdrawindex(&glyphs[i]);
 		} else {
@@ -2319,6 +2321,268 @@ kmap(KeySym k, uint state)
 	return NULL;
 }
 
+static Rune
+keyunicode(const char *s, int n)
+{
+	mbstate_t ps;
+	wchar_t wc;
+	size_t r;
+
+	if (n <= 0)
+		return 0;
+	memset(&ps, 0, sizeof ps);
+	r = mbrtowc(&wc, s, n, &ps);
+	if (r == (size_t)-1 || r == (size_t)-2 || r == 0)
+		return 0;
+	return (Rune)wc;
+}
+
+static Rune
+keybase(XKeyEvent *e)
+{
+	XKeyEvent ev = *e;
+	char buf[64];
+	KeySym sym = NoSymbol;
+	Status status;
+	int n;
+
+	ev.state = 0;
+	n = xw.ime.xic
+	    ? XmbLookupString(xw.ime.xic, &ev, buf, sizeof buf, &sym, &status)
+	    : XLookupString(&ev, buf, sizeof buf, &sym, NULL);
+	if (n > 0)
+		return keyunicode(buf, n);
+
+	sym = XLookupKeysym(e, 0);
+	if (sym >= 0x01000000 && sym <= 0x0110ffff)
+		return (Rune)(sym & 0xffffff);
+	if (BETWEEN(sym, 0x20, 0x7e) || BETWEEN(sym, 0xa0, 0xff))
+		return (Rune)sym;
+	return 0;
+}
+
+static int
+kittykey(KeySym k, unsigned *code, char *final, int *modifier)
+{
+	*modifier = 0;
+	switch (k) {
+	case XK_Escape:      *code = 27;    *final = 'u'; return 1;
+	case XK_Return:      *code = 13;    *final = 'u'; return 1;
+	case XK_Tab:
+	case XK_ISO_Left_Tab: *code = 9;    *final = 'u'; return 1;
+	case XK_BackSpace:   *code = 127;   *final = 'u'; return 1;
+	case XK_Insert:      *code = 2;     *final = '~'; return 1;
+	case XK_Delete:      *code = 3;     *final = '~'; return 1;
+	case XK_Left:        *code = 1;     *final = 'D'; return 1;
+	case XK_Right:       *code = 1;     *final = 'C'; return 1;
+	case XK_Up:          *code = 1;     *final = 'A'; return 1;
+	case XK_Down:        *code = 1;     *final = 'B'; return 1;
+	case XK_Prior:       *code = 5;     *final = '~'; return 1;
+	case XK_Next:        *code = 6;     *final = '~'; return 1;
+	case XK_Home:        *code = 1;     *final = 'H'; return 1;
+	case XK_End:         *code = 1;     *final = 'F'; return 1;
+	case XK_Caps_Lock:   *code = 57358; *final = 'u'; *modifier = 1; return 1;
+	case XK_Scroll_Lock: *code = 57359; *final = 'u'; return 1;
+	case XK_Num_Lock:    *code = 57360; *final = 'u'; *modifier = 1; return 1;
+	case XK_Print:       *code = 57361; *final = 'u'; return 1;
+	case XK_Pause:       *code = 57362; *final = 'u'; return 1;
+	case XK_Menu:        *code = 57363; *final = 'u'; return 1;
+	case XK_F1:          *code = 1;     *final = 'P'; return 1;
+	case XK_F2:          *code = 1;     *final = 'Q'; return 1;
+	case XK_F3:          *code = 13;    *final = '~'; return 1;
+	case XK_F4:          *code = 1;     *final = 'S'; return 1;
+	case XK_F5:          *code = 15;    *final = '~'; return 1;
+	case XK_F6:          *code = 17;    *final = '~'; return 1;
+	case XK_F7:          *code = 18;    *final = '~'; return 1;
+	case XK_F8:          *code = 19;    *final = '~'; return 1;
+	case XK_F9:          *code = 20;    *final = '~'; return 1;
+	case XK_F10:         *code = 21;    *final = '~'; return 1;
+	case XK_F11:         *code = 23;    *final = '~'; return 1;
+	case XK_F12:         *code = 24;    *final = '~'; return 1;
+	case XK_F13:         *code = 57376; *final = 'u'; return 1;
+	case XK_F14:         *code = 57377; *final = 'u'; return 1;
+	case XK_F15:         *code = 57378; *final = 'u'; return 1;
+	case XK_F16:         *code = 57379; *final = 'u'; return 1;
+	case XK_F17:         *code = 57380; *final = 'u'; return 1;
+	case XK_F18:         *code = 57381; *final = 'u'; return 1;
+	case XK_F19:         *code = 57382; *final = 'u'; return 1;
+	case XK_F20:         *code = 57383; *final = 'u'; return 1;
+	case XK_F21:         *code = 57384; *final = 'u'; return 1;
+	case XK_F22:         *code = 57385; *final = 'u'; return 1;
+	case XK_F23:         *code = 57386; *final = 'u'; return 1;
+	case XK_F24:         *code = 57387; *final = 'u'; return 1;
+	case XK_F25:         *code = 57388; *final = 'u'; return 1;
+	case XK_F26:         *code = 57389; *final = 'u'; return 1;
+	case XK_F27:         *code = 57390; *final = 'u'; return 1;
+	case XK_F28:         *code = 57391; *final = 'u'; return 1;
+	case XK_F29:         *code = 57392; *final = 'u'; return 1;
+	case XK_F30:         *code = 57393; *final = 'u'; return 1;
+	case XK_F31:         *code = 57394; *final = 'u'; return 1;
+	case XK_F32:         *code = 57395; *final = 'u'; return 1;
+	case XK_F33:         *code = 57396; *final = 'u'; return 1;
+	case XK_F34:         *code = 57397; *final = 'u'; return 1;
+	case XK_F35:         *code = 57398; *final = 'u'; return 1;
+	case XK_KP_0:        *code = 57399; *final = 'u'; return 1;
+	case XK_KP_1:        *code = 57400; *final = 'u'; return 1;
+	case XK_KP_2:        *code = 57401; *final = 'u'; return 1;
+	case XK_KP_3:        *code = 57402; *final = 'u'; return 1;
+	case XK_KP_4:        *code = 57403; *final = 'u'; return 1;
+	case XK_KP_5:        *code = 57404; *final = 'u'; return 1;
+	case XK_KP_6:        *code = 57405; *final = 'u'; return 1;
+	case XK_KP_7:        *code = 57406; *final = 'u'; return 1;
+	case XK_KP_8:        *code = 57407; *final = 'u'; return 1;
+	case XK_KP_9:        *code = 57408; *final = 'u'; return 1;
+	case XK_KP_Decimal:  *code = 57409; *final = 'u'; return 1;
+	case XK_KP_Divide:   *code = 57410; *final = 'u'; return 1;
+	case XK_KP_Multiply: *code = 57411; *final = 'u'; return 1;
+	case XK_KP_Subtract: *code = 57412; *final = 'u'; return 1;
+	case XK_KP_Add:      *code = 57413; *final = 'u'; return 1;
+	case XK_KP_Enter:    *code = 57414; *final = 'u'; return 1;
+	case XK_KP_Equal:    *code = 57415; *final = 'u'; return 1;
+	case XK_KP_Separator:*code = 57416; *final = 'u'; return 1;
+	case XK_KP_Left:     *code = 57417; *final = 'u'; return 1;
+	case XK_KP_Right:    *code = 57418; *final = 'u'; return 1;
+	case XK_KP_Up:       *code = 57419; *final = 'u'; return 1;
+	case XK_KP_Down:     *code = 57420; *final = 'u'; return 1;
+	case XK_KP_Prior:    *code = 57421; *final = 'u'; return 1;
+	case XK_KP_Next:     *code = 57422; *final = 'u'; return 1;
+	case XK_KP_Home:     *code = 57423; *final = 'u'; return 1;
+	case XK_KP_End:      *code = 57424; *final = 'u'; return 1;
+	case XK_KP_Insert:   *code = 57425; *final = 'u'; return 1;
+	case XK_KP_Delete:   *code = 57426; *final = 'u'; return 1;
+	case XK_KP_Begin:    *code = 57427; *final = 'u'; return 1;
+	case XK_Shift_L:     *code = 57441; *final = 'u'; *modifier = 1; return 1;
+	case XK_Shift_R:     *code = 57447; *final = 'u'; *modifier = 1; return 1;
+	case XK_Control_L:   *code = 57442; *final = 'u'; *modifier = 1; return 1;
+	case XK_Control_R:   *code = 57448; *final = 'u'; *modifier = 1; return 1;
+	case XK_Alt_L:       *code = 57443; *final = 'u'; *modifier = 1; return 1;
+	case XK_Alt_R:       *code = 57449; *final = 'u'; *modifier = 1; return 1;
+	case XK_Super_L:     *code = 57444; *final = 'u'; *modifier = 1; return 1;
+	case XK_Super_R:     *code = 57450; *final = 'u'; *modifier = 1; return 1;
+	case XK_Hyper_L:     *code = 57445; *final = 'u'; *modifier = 1; return 1;
+	case XK_Hyper_R:     *code = 57451; *final = 'u'; *modifier = 1; return 1;
+	case XK_Meta_L:      *code = 57446; *final = 'u'; *modifier = 1; return 1;
+	case XK_Meta_R:      *code = 57452; *final = 'u'; *modifier = 1; return 1;
+	}
+	return 0;
+}
+
+static unsigned
+keymods(XKeyEvent *e, KeySym ksym)
+{
+	unsigned mods = 0;
+
+	if (e->state & ShiftMask)     mods |= 1;
+	if (e->state & Mod1Mask)      mods |= 2;
+	if (e->state & ControlMask)   mods |= 4;
+	if (e->state & Mod4Mask)      mods |= 8;
+	if (e->state & Mod3Mask)      mods |= 16;
+	if (e->state & Mod5Mask)      mods |= 32;
+	if (e->state & LockMask)      mods |= 64;
+	if (e->state & Mod2Mask)      mods |= 128;
+
+	switch (ksym) {
+	case XK_Shift_L:
+	case XK_Shift_R:   mods |= 1; break;
+	case XK_Control_L:
+	case XK_Control_R: mods |= 4; break;
+	case XK_Alt_L:
+	case XK_Alt_R:     mods |= 2; break;
+	case XK_Super_L:
+	case XK_Super_R:   mods |= 8; break;
+	case XK_Hyper_L:
+	case XK_Hyper_R:   mods |= 16; break;
+	case XK_Meta_L:
+	case XK_Meta_R:    mods |= 32; break;
+	}
+	return mods;
+}
+
+static int
+kbdkitty(XKeyEvent *e, KeySym ksym, char *buf, int len, int release)
+{
+	unsigned flags = tkbdflags(), mods, binding, code = 0, shifted = 0;
+	char final = 'u', out[96], alt[16] = "";
+	int modifier, n, i, hasctrl, evtype = release ? 3 : 1;
+
+	if (flags == 0)
+		return 0;
+
+	mods = keymods(e, ksym);
+	binding = mods & 0x3f;
+
+	if (release && !(flags & 2))
+		return 1;
+	if (release && !(flags & 8) &&
+	    (ksym == XK_Return || ksym == XK_Tab || ksym == XK_BackSpace ||
+	     ksym == XK_KP_Enter))
+		return 1;
+
+	if (!kittykey(ksym, &code, &final, &modifier)) {
+		code = keybase(e);
+		if (code == 0 && len > 0)
+			code = keyunicode(buf, len);
+		if (code == 0)
+			return 0;
+		final = 'u';
+		if ((flags & 4) && (binding & 1) && len > 0) {
+			Rune sh = keyunicode(buf, len);
+			if (sh >= 0x20 && sh != 0x7f && sh != code)
+				shifted = sh;
+		}
+	}
+
+	if (!(flags & 8)) {
+		if (!release && binding == 0) {
+			if (ksym == XK_Return || ksym == XK_Tab ||
+			    ksym == XK_BackSpace || ksym == XK_KP_Enter)
+				return 0;
+			if (len > 0) {
+				hasctrl = 0;
+				for (i = 0; i < len; i++) {
+					unsigned char c = buf[i];
+					if (c < 0x20 || c == 0x7f) {
+						hasctrl = 1;
+						break;
+					}
+				}
+				if (!hasctrl) {
+					ttywrite(buf, len, 1);
+					return 1;
+				}
+			}
+		}
+		if (modifier)
+			return 1;
+	}
+
+	if (shifted)
+		snprintf(alt, sizeof alt, ":%u", shifted);
+
+	if (final == 'u' || final == '~') {
+		if (flags & 2)
+			n = snprintf(out, sizeof out, "\033[%u%s;%u:%d%c",
+			             code, alt, mods + 1, evtype, final);
+		else if (mods + 1 > 1 || shifted)
+			n = snprintf(out, sizeof out, "\033[%u%s;%u%c",
+			             code, alt, mods + 1, final);
+		else
+			n = snprintf(out, sizeof out, "\033[%u%c", code, final);
+	} else {
+		if (flags & 2)
+			n = snprintf(out, sizeof out, "\033[1;%u:%d%c",
+			             mods + 1, evtype, final);
+		else if (mods + 1 > 1)
+			n = snprintf(out, sizeof out, "\033[1;%u%c",
+			             mods + 1, final);
+		else
+			n = snprintf(out, sizeof out, "\033[%c", final);
+	}
+	if (n > 0)
+		ttywrite(out, n, 1);
+	return 1;
+}
+
 void
 kpress(XEvent *ev)
 {
@@ -2340,6 +2604,13 @@ kpress(XEvent *ev)
 	} else {
 		len = XLookupString(e, buf, sizeof buf, &ksym, NULL);
 	}
+
+	if (ev->type == KeyRelease) {
+		if (tkbdflags() & 2)
+			kbdkitty(e, ksym, buf, len, 1);
+		return;
+	}
+
 	/* 1. shortcuts */
 	for (bp = shortcuts; bp < shortcuts + LEN(shortcuts); bp++) {
 		if (ksym == bp->keysym && match(bp->mod, e->state)) {
@@ -2348,13 +2619,17 @@ kpress(XEvent *ev)
 		}
 	}
 
-	/* 2. custom keys from config.h */
+	/* 2. kitty keyboard protocol */
+	if (kbdkitty(e, ksym, buf, len, 0))
+		return;
+
+	/* 3. custom keys from config.h */
 	if ((customkey = kmap(ksym, e->state))) {
 		ttywrite(customkey, strlen(customkey), 1);
 		return;
 	}
 
-	/* 3. composed string from input method */
+	/* 4. composed string from input method */
 	if (len == 0)
 		return;
 	if (len == 1 && e->state & Mod1Mask) {
