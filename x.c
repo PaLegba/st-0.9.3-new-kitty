@@ -202,7 +202,7 @@ static void bpress(XEvent *);
 static void bmotion(XEvent *);
 static void propnotify(XEvent *);
 static void selnotify(XEvent *);
-static void selclear_(XEvent *);
+static void selclear_(XEvent *) __attribute__((unused));
 static void selrequest(XEvent *);
 static void setsel(char *, Time);
 static void mousesel(XEvent *, int);
@@ -345,7 +345,11 @@ void
 zoomreset(const Arg *arg)
 {
 	Arg larg;
-	zoomabs(&larg);
+
+	if (defaultfontsize > 0) {
+		larg.f = defaultfontsize;
+		zoomabs(&larg);
+	}
 }
 
 void
@@ -449,7 +453,7 @@ mousesel(XEvent *e, int done)
 	int type, seltype = SEL_REGULAR;
 	uint state = e->xbutton.state & ~(Button1Mask | forcemousemod);
 
-	for (type = 1; type < LEN(selmasks); ++type) {
+	for (type = 1; (size_t)type < LEN(selmasks); ++type) {
 		if (match(selmasks[type], state)) {
 			seltype = type;
 			break;
@@ -900,11 +904,10 @@ xloadcolor(int i, const char *name, Color *ncolor)
 void
 xloadcols(void)
 {
-	int i;
 	static int loaded;
 
 	if (loaded) {
-		for (i = 0; i < dc.collen; i++) {
+		for (size_t i = 0; i < dc.collen; i++) {
 			XftColorFree(xw.dpy, xw.vis, xw.cmap, &dc.normalcol[i]);
 			XftColorFree(xw.dpy, xw.vis, xw.cmap, &dc.bellcol[i]);
 		}
@@ -925,28 +928,23 @@ xloadcols(void)
 void
 xnormalcols(void)
 {
-	int i;
-	static int loaded;
-
-	for (i = 0; i < dc.collen; i++)
-		if (!xloadcolor(i, NULL, &dc.normalcol[i])) {
+	for (size_t i = 0; i < dc.collen; i++)
+		if (!xloadcolor((int)i, NULL, &dc.normalcol[i])) {
 //			if (colorname[i])
 //				die("could not allocate color '%s'\n", colorname[i]);
 			if (seloptsch->colors[i])
 				die("could not allocate color '%s'\n", seloptsch->colors[i]);
 			else
-				die("could not allocate color %d\n", i);
+				die("could not allocate color %d\n", (int)i);
 		}
-	loaded = 1;
 }
 
 void
 xbellcols(void)
 {
-	int i;
 	XRenderColor bc;
 
-	for (i = 0; i < dc.collen; i++) {
+	for (size_t i = 0; i < dc.collen; i++) {
 		bc.red   = MAX(0, MIN(0xffff, BELLR(dc.normalcol[i].color)));
 		bc.green = MAX(0, MIN(0xffff, BELLG(dc.normalcol[i].color)));
 		bc.blue  = MAX(0, MIN(0xffff, BELLB(dc.normalcol[i].color)));
@@ -959,7 +957,7 @@ xbellcols(void)
 int
 xgetcolor(int x, unsigned char *r, unsigned char *g, unsigned char *b)
 {
-	if (!BETWEEN(x, 0, dc.collen - 1))
+	if (x < 0 || (size_t)x >= dc.collen)
 		return 1;
 
 	*r = dc.col[x].color.red >> 8;
@@ -974,7 +972,7 @@ xsetcolorname(int x, const char *name)
 {
 	Color ncolor;
 
-	if (!BETWEEN(x, 0, dc.collen - 1))
+	if (x < 0 || (size_t)x >= dc.collen)
 		return 1;
 
 	if (!xloadcolor(x, name, &ncolor))
@@ -1668,7 +1666,7 @@ xdrawglyphfontspecs(const XftGlyphFontSpec *specs, Glyph base, int len, int x, i
 	}
 
 	/* Change basic system colors [0-7] to bright system colors [8-15] */
-	if ((base.mode & ATTR_BOLD_FAINT) == ATTR_BOLD && BETWEEN(base.fg, 0, 7))
+	if ((base.mode & ATTR_BOLD_FAINT) == ATTR_BOLD && base.fg <= 7)
 		fg = &dc.col[base.fg + 8];
 
 	if (IS_SET(MODE_REVERSE)) {
@@ -1961,14 +1959,15 @@ xdrawimages(Glyph base, Line line, int x1, int y1, int x2) {
 		// row of the previous cell, then assume that the column is the
 		// next one.
 		if (last_col && (num_diacritics <= 1 || !cur_col) &&
-		    cur_row == last_row)
+		    cur_row == (uint32_t)last_row)
 			cur_col = last_col + 1;
 		// If the additional id byte is not specified and the
 		// coordinates are consecutive, assume the byte is also the
 		// same.
 		if (last_id_4thbyteplus1 &&
 		    (num_diacritics <= 2 || !cur_id_4thbyteplus1) &&
-		    cur_row == last_row && cur_col == last_col + 1)
+		    cur_row == (uint32_t)last_row &&
+		    cur_col == (uint32_t)last_col + 1)
 			cur_id_4thbyteplus1 = last_id_4thbyteplus1;
 		// If we couldn't infer row and column, start from the top left
 		// corner.
@@ -1978,7 +1977,8 @@ xdrawimages(Glyph base, Line line, int x1, int y1, int x2) {
 			cur_col = 1;
 		// If this cell breaks a contiguous stripe of image cells, draw
 		// that line and start a new one.
-		if (cur_col != last_col + 1 || cur_row != last_row ||
+		if (cur_col != (uint32_t)last_col + 1 ||
+		    cur_row != (uint32_t)last_row ||
 		    cur_id_4thbyteplus1 != last_id_4thbyteplus1) {
 			uint32_t image_id = image_id_24bits;
 			if (last_id_4thbyteplus1)
@@ -2077,7 +2077,7 @@ xseticontitle(char *p)
 void
 xfreetitlestack(void)
 {
-	for (int i = 0; i < LEN(titlestack); i++) {
+	for (size_t i = 0; i < LEN(titlestack); i++) {
 		free(titlestack[i]);
 		titlestack[i] = NULL;
 	}
@@ -2288,7 +2288,7 @@ char*
 kmap(KeySym k, uint state)
 {
 	Key *kp;
-	int i;
+	size_t i;
 
 	/* Check for mapped keys out of X11 function keys. */
 	for (i = 0; i < LEN(mappedkeys); i++) {
@@ -2661,7 +2661,7 @@ cmessage(XEvent *e)
 		} else if (e->xclient.data.l[1] == XEMBED_FOCUS_OUT) {
 			win.mode &= ~MODE_FOCUSED;
 		}
-	} else if (e->xclient.data.l[0] == xw.wmdeletewin) {
+	} else if ((Atom)e->xclient.data.l[0] == xw.wmdeletewin) {
 		ttyhangup();
 		gr_deinit();
 		exit(0);

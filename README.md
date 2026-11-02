@@ -115,6 +115,23 @@ make
 yet. If you already have a `config.h`, it is used as-is; merge new options from
 `config.def.h` manually after updating.
 
+The build system works with both OpenBSD `make` (bmake) and GNU make. On
+OpenBSD, use either `make` or `gmake`:
+
+```sh
+make clean && make
+make test/kitty_demo
+make test/kitty-pet/kitty_pet
+
+# or explicitly with GNU make
+gmake clean && gmake
+gmake test/kitty_demo
+gmake test/kitty-pet/kitty_pet
+```
+
+`pkg-config` is used for zlib, fontconfig and freetype2 on both Linux and
+OpenBSD. The old OpenBSD-specific edits to `config.mk` are no longer required.
+
 Build the graphics demo separately:
 
 ```sh

@@ -26,10 +26,16 @@ $(OBJ): config.h config.mk
 st: $(OBJ)
 	$(CC) -o $@ $(OBJ) $(STLDFLAGS)
 
-test/kitty_demo: test/kitty_demo.c
-	$(CC) $(CFLAGS) -O2 -o $@ $< -lm -lz
+KITTY_DEMO = test/kitty_demo
+KITTY_DEMO_SRC = test/kitty_demo.c
+KITTY_PET = test/kitty-pet/kitty_pet
+KITTY_PET_SRC = test/kitty-pet/kitty_pet.c
+KITTY_PET_MAKEFILE = test/kitty-pet/Makefile
 
-test/kitty-pet/kitty_pet:
+$(KITTY_DEMO): $(KITTY_DEMO_SRC)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -O2 -o $@ $(KITTY_DEMO_SRC) $(LDFLAGS) -lm -lz
+
+$(KITTY_PET): $(KITTY_PET_SRC) $(KITTY_PET_MAKEFILE)
 	$(MAKE) -C test/kitty-pet kitty_pet
 
 clean:
@@ -43,6 +49,7 @@ dist: clean
 		st-$(VERSION)
 	cp stb/stb_image.h st-$(VERSION)/stb/
 	cp test/README.md test/kitty_demo.c st-$(VERSION)/test/
+	cp -R test/kitty-pet st-$(VERSION)/test/
 	tar -cf - st-$(VERSION) | gzip > st-$(VERSION).tar.gz
 	rm -rf st-$(VERSION)
 

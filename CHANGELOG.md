@@ -56,6 +56,18 @@ changes below are local additions to that base.
 
 ### Changed
 
+- Made the build system portable between OpenBSD bmake and GNU make:
+  - `config.mk` now uses `pkg-config` for zlib, fontconfig and freetype2 on
+    both systems and no longer requires a Linux-only `-lrt`;
+  - `CC = cc` is set explicitly so GNU make does not fall back to the
+    non-existent `c99` on OpenBSD;
+  - demo and pet rules no longer use non-portable `$<` in explicit targets.
+- `test/kitty-pet` build rules are portable between bmake and GNU make:
+  - C99/pedantic/warning flags live in `PETCFLAGS` so a command-line `CFLAGS`
+    override does not drop them;
+  - the top-level kitty-pet target has proper prerequisites and therefore
+    rebuilds when `kitty_pet.c` or its `Makefile` changes.
+- The `dist` tarball now includes `test/kitty-pet/` and its assets.
 - Replaced Imlib2 with the vendored `stb/stb_image.h` for image decoding.
 - Added an internal image representation and composition/scaling path for
   frames and placements.
@@ -74,9 +86,28 @@ changes below are local additions to that base.
 ### Removed
 
 - The Imlib2 build dependency and all Imlib2 API usage.
+- The tracked generated `st.info.cdb` terminfo database, which the build and
+  `dist` targets do not use.
 
 ### Fixed
 
+- OpenBSD build fixes:
+  - declare `pledge(2)` correctly and expose BSD interfaces such as
+    `mkdtemp(3)` and `cfmakeraw(3)`;
+  - fix sign-compare, unused-variable, unused-function and format-string
+    warnings in `st.c`, `x.c` and `graphics.c`;
+  - use `arc4random(3)` instead of `rand(3)` on OpenBSD to avoid the linker
+    warning about deterministic values;
+  - replace `strcat(3)` with bounded `snprintf(3)` in the image cache path;
+  - fix `kitty-pet` signal/termios declarations;
+  - fix an uninitialized `Arg` in `zoomreset()`.
+- OpenBSD runtime graphics fixes:
+  - extend the parent pledge to `stdio rpath wpath cpath tty proc exec`;
+    without `wpath`/`cpath` the kitty graphics cache aborts `st` with
+    `SIGABRT`, and `exec` is needed by the external preview and image-info
+    helpers;
+  - copy transmitted image files into the cache with a direct
+    `open`/`read`/`write` loop instead of a symlink plus `system("cp ...")`.
 - Ignore legacy DEC special graphics (`SO`, `ESC ( 0`, `ESC ) 0`) while
   synchronized output mode (`CSI ? 2026 h`) is active. This prevents a leaked
   character-set switch in application output from turning subsequent ASCII text

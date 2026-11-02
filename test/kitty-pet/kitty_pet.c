@@ -1,5 +1,4 @@
 #define _DEFAULT_SOURCE
-#define _XOPEN_SOURCE 700
 
 #include <errno.h>
 #include <fcntl.h>
@@ -22,8 +21,15 @@
 #define STBI_ONLY_PNG
 #define STBI_NO_LINEAR
 #define STBI_NO_HDR
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
 #define STB_IMAGE_IMPLEMENTATION
 #include "../../stb/stb_image.h"
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -470,9 +476,18 @@ static void send_placement(int col, int row, int ox, int oy)
 	write_all(cmd, (size_t)n);
 }
 
+static double random_unit(void)
+{
+#ifdef __OpenBSD__
+	return arc4random() / 4294967296.0;
+#else
+	return rand() / (RAND_MAX + 1.0);
+#endif
+}
+
 static double random_range(double lo, double hi)
 {
-	return lo + (hi - lo) * (rand() / (RAND_MAX + 1.0));
+	return lo + (hi - lo) * random_unit();
 }
 
 static void clamp_pet(void)
@@ -915,7 +930,9 @@ int main(int argc, char **argv)
 {
 	self_name = argv[0];
 	parse_args(argc, argv);
+#ifndef __OpenBSD__
 	srand((unsigned)time(NULL) ^ (unsigned)getpid());
+#endif
 	image_id = ((uint32_t)getpid() * 2654435761u) ^ 0x4b504554u;
 	if (!image_id)
 		image_id = 0x4b504554u;
