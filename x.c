@@ -2499,6 +2499,24 @@ keymods(XKeyEvent *e, KeySym ksym)
 }
 
 static int
+kbdotherkeys(XKeyEvent *e, KeySym ksym)
+{
+	unsigned mods;
+	char out[32];
+	int n;
+
+	if (tmodifyotherkeys() <= 0 || ksym != XK_Return)
+		return 0;
+	mods = keymods(e, ksym) & 0x3f;
+	if (!(mods & (1 | 4)))
+		return 0;
+	n = snprintf(out, sizeof out, "\033[27;%u;13~", mods + 1);
+	if (n > 0)
+		ttywrite(out, n, 1);
+	return 1;
+}
+
+static int
 kbdkitty(XKeyEvent *e, KeySym ksym, char *buf, int len, int release)
 {
 	unsigned flags = tkbdflags(), mods, binding, code = 0, shifted = 0;
@@ -2623,13 +2641,17 @@ kpress(XEvent *ev)
 	if (kbdkitty(e, ksym, buf, len, 0))
 		return;
 
-	/* 3. custom keys from config.h */
+	/* 3. xterm modifyOtherKeys */
+	if (kbdotherkeys(e, ksym))
+		return;
+
+	/* 4. custom keys from config.h */
 	if ((customkey = kmap(ksym, e->state))) {
 		ttywrite(customkey, strlen(customkey), 1);
 		return;
 	}
 
-	/* 4. composed string from input method */
+	/* 5. composed string from input method */
 	if (len == 0)
 		return;
 	if (len == 1 && e->state & Mod1Mask) {

@@ -122,6 +122,7 @@ size_t ttyread(void);
 void ttyresize(int, int);
 void ttywrite(const char *, size_t, int);
 unsigned tkbdflags(void);
+int tmodifyotherkeys(void);
 
 void resettitle(void);
 

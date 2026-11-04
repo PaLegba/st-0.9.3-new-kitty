@@ -1086,6 +1086,12 @@ tkbdflags(void)
 	return term.kbd_flags[IS_SET(MODE_ALTSCREEN) ? 1 : 0];
 }
 
+int
+tmodifyotherkeys(void)
+{
+	return term.modify_other_keys;
+}
+
 static void
 tkbdset(unsigned flags, unsigned mode)
 {
