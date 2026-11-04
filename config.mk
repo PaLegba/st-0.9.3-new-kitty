@@ -7,19 +7,28 @@ VERSION = 0.9.3
 PREFIX = /usr/local
 MANPREFIX = $(PREFIX)/share/man
 
-# X11 headers and libraries. On OpenBSD these are part of the base system.
-# pkg-config is used for fontconfig, freetype2 and zlib on both Linux and
-# OpenBSD.
-X11INC = /usr/X11R6/include
-X11LIB = /usr/X11R6/lib
+# The BSDs install X11 in different prefixes.  Linux uses the system prefix.
+OS != uname -s
+X11BASE != sh -c 'case "$(OS)" in \
+	OpenBSD) echo /usr/X11R6 ;; \
+	NetBSD) echo /usr/X11R7 ;; \
+	FreeBSD|DragonFly) echo /usr/local ;; \
+	*) echo /usr ;; \
+esac'
 
-PKG_CONFIG = pkg-config
+X11INC = $(X11BASE)/include
+X11LIB = $(X11BASE)/lib
+
+# shm_open(3) is in libc on OpenBSD and FreeBSD; NetBSD and Linux need librt.
+SHM_LIBS != sh -c 'case "$(OS)" in \
+	OpenBSD|FreeBSD) ;; \
+	*) echo -lrt ;; \
+esac'
 
 # includes and libs
-INCS = -I$(X11INC) \
-       `$(PKG_CONFIG) --cflags fontconfig freetype2`
-LIBS = -L$(X11LIB) -lm -lX11 -lutil -lXft -lXrender \
-       `$(PKG_CONFIG) --libs zlib fontconfig freetype2`
+INCS = -I$(X11INC) -I$(X11INC)/freetype2
+LIBS = -L$(X11LIB) -lm -lz -lX11 -lutil -lXft -lXrender \
+       -lfontconfig -lfreetype $(SHM_LIBS)
 
 # flags
 STCPPFLAGS = -DVERSION=\"$(VERSION)\" -D_XOPEN_SOURCE=600
