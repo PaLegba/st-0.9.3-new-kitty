@@ -1,0 +1,1 @@
+for fg in {30..37} {90..97}; do for bg in {40..47} {100..107}; do echo -en "\e[${fg};${bg}m Go \e[0m"; done; echo; done

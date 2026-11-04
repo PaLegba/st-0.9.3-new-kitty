@@ -87,7 +87,7 @@ cache and decodes it with stb_image.
 
 ```sh
 ./test/kitty_demo --images test/test1.jpg test/test2.png
-./test/kitty_demo --images test/cozy_coffin.jpg --hold 10
+./test/kitty_demo --images test/test3.jpg --hold 10
 ```
 
 Images are arranged in a horizontal strip. Each image is scaled to fit the

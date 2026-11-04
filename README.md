@@ -231,7 +231,7 @@ make test/kitty_demo
 # Run inside st, not as `st -e ./test/kitty_demo`:
 ./test/kitty_demo
 ./test/kitty_demo --live
-./test/kitty_demo --images test/test1.jpg test/test2.png test/cozy_coffin.jpg
+./test/kitty_demo --images test/test1.jpg test/test2.png test/test3.jpg
 ```
 
 The default mode generates a looping animation of geometric primitives and
@@ -243,7 +243,7 @@ mode.
 
 The `test` directory contains:
 
-- `test/test1.jpg`, `test/test2.png`, `test/cozy_coffin.jpg` — sample images;
+- `test/test1.jpg`, `test/test2.png`, `test/test3.jpg` — sample images;
 - `test/typescript3` and `test/timing3` — a recorded kitty graphics session and
   its timing log;
 - `test/kitty` — a snapshot of the original kitty repository and its tests.
